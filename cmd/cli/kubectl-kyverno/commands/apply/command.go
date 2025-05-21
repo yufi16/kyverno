@@ -53,6 +53,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	k8scorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/metadata"
 )
 
 type SkippedInvalidPolicies struct {
@@ -87,7 +88,6 @@ type ApplyCommandConfig struct {
 	GenerateExceptions    bool
 	GeneratedExceptionTTL time.Duration
 	JSONPaths             []string
-	ClusterWideResources  bool
 }
 
 func Command() *cobra.Command {
@@ -188,7 +188,6 @@ func Command() *cobra.Command {
 	cmd.Flags().BoolVarP(&applyCommandConfig.inlineExceptions, "exceptions-with-resources", "", false, "Evaluate policy exceptions from the resources path")
 	cmd.Flags().BoolVarP(&applyCommandConfig.GenerateExceptions, "generate-exceptions", "", false, "Generate policy exceptions for each violation")
 	cmd.Flags().DurationVarP(&applyCommandConfig.GeneratedExceptionTTL, "generated-exception-ttl", "", time.Hour*24*30, "Default TTL for generated exceptions")
-	cmd.Flags().BoolVarP(&applyCommandConfig.ClusterWideResources, "cluster-wide-resources", "", false, "If set to true, will apply policies to cluster-wide resources")
 	return cmd
 }
 
@@ -599,7 +598,7 @@ func (c *ApplyCommandConfig) applyImageValidatingPolicies(
 }
 
 func (c *ApplyCommandConfig) loadResources(out io.Writer, paths []string, policies []engineapi.GenericPolicy, dClient dclient.Interface) ([]*unstructured.Unstructured, []*unstructured.Unstructured, error) {
-	resources, err := common.GetResourceAccordingToResourcePath(out, nil, paths, c.Cluster, policies, dClient, c.Namespace, c.PolicyReport, c.ClusterWideResources, "")
+	resources, err := common.GetResourceAccordingToResourcePath(out, nil, paths, c.Cluster, policies, dClient, c.Namespace, c.PolicyReport, "")
 	if err != nil {
 		return resources, nil, fmt.Errorf("failed to load resources (%w)", err)
 	}
@@ -720,7 +719,11 @@ func (c *ApplyCommandConfig) initStoreAndClusterClient(store *store.Store, targe
 		if err != nil {
 			return nil, err
 		}
-		dClient, err = dclient.NewClient(context.Background(), dynamicClient, kubeClient, 15*time.Minute)
+		metadataClient, err := metadata.NewForConfig(restConfig)
+		if err != nil {
+			return nil, err
+		}
+		dClient, err = dclient.NewClient(context.Background(), dynamicClient, kubeClient, 15*time.Minute, false, metadataClient)
 		if err != nil {
 			return nil, err
 		}
